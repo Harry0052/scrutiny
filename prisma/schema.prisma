@@ -1,0 +1,565 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum JurisdictionLevel {
+  NATIONAL
+  STATE
+  LOCAL
+}
+
+enum StatementSourceType {
+  PRESS_RELEASE
+  SPEECH
+  SOCIAL_MEDIA
+  INTERVIEW
+  COMMITTEE_HEARING
+  CAMPAIGN_SITE
+  OTHER
+}
+
+enum VotePosition {
+  YES
+  NO
+  ABSTAIN
+  PRESENT
+  NOT_VOTING
+}
+
+enum DonorType {
+  INDIVIDUAL
+  PAC
+  INDUSTRY
+  ASSOCIATION
+  NONPROFIT
+  OTHER
+}
+
+enum DisclosureExtractionStatus {
+  PENDING
+  PARSED
+  PARTIAL
+  FAILED
+}
+
+enum AlignmentClassification {
+  ALIGNED
+  CONTRADICTED
+  UNCLEAR
+}
+
+enum ImpactAlignment {
+  ALIGNED
+  PARTIAL
+  MISALIGNED
+  INSUFFICIENT_DATA
+}
+
+enum DataLayer {
+  RAW
+  NORMALIZED
+  INTERPRETED
+}
+
+enum VerificationState {
+  VERIFIED
+  UNVERIFIED
+  NEEDS_VERIFICATION
+}
+
+enum ProcessingStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum PublicFigureStatus {
+  OFFICEHOLDER
+  CANDIDATE
+  FORMER_OFFICEHOLDER
+}
+
+enum IncumbentChallengerStatus {
+  INCUMBENT
+  CHALLENGER
+  OPEN_SEAT
+  UNKNOWN
+}
+
+model Politician {
+  id                       String              @id @default(cuid())
+  externalId               String?             @unique
+  slug                     String              @unique
+  fullName                 String
+  party                    String?
+  officeTitle              String
+  chamber                  String?
+  jurisdictionLevel        JurisdictionLevel
+  jurisdictionCountry      String              @default("US")
+  jurisdictionState        String?
+  districtLabel            String?
+  districtId               String?
+  termStart                DateTime?
+  termEnd                  DateTime?
+  externalProfiles         Json?
+  normalizedFullName       String?
+  city                     String?
+  county                   String?
+  candidateStatus          PublicFigureStatus  @default(OFFICEHOLDER)
+  incumbentChallengerStatus IncumbentChallengerStatus @default(UNKNOWN)
+  officeSought             String?
+  electionYear             Int?
+  issueFocusTags           String[]            @default([])
+  latestActivityAt         DateTime?
+  latestActivitySummary    String?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  district                 District?           @relation(fields: [districtId], references: [id])
+  statements               Statement[]
+  votes                    Vote[]
+  donorContributions       DonorContribution[]
+  financialDisclosures     FinancialDisclosure[]
+  analysisResults          AnalysisResult[]
+  honestyScoreSnapshots    HonestyScoreSnapshot[]
+  constituentImpactResults ConstituentImpactResult[]
+  aliases                  PoliticianAlias[]
+  officeHistory            OfficeHistory[]
+  searchDocument           PublicFigureSearchDocument?
+
+  @@index([normalizedFullName])
+  @@index([candidateStatus, electionYear])
+  @@index([jurisdictionLevel, jurisdictionState, county, city])
+}
+
+model Statement {
+  id               String              @id @default(cuid())
+  externalId       String?             @unique
+  politicianId     String
+  sourceType       StatementSourceType
+  sourceUrl        String?
+  sourceLabel      String?
+  text             String
+  issueTags        String[]
+  madeAt           DateTime
+  createdAt        DateTime            @default(now())
+  sourceRetrievedAt DateTime?
+  parserVersion    String?
+  extractionConfidence Float?
+  verificationState VerificationState  @default(UNVERIFIED)
+  rawSourceSnapshot Json?
+
+  politician       Politician          @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  candidateLinks   StatementBillLink[]
+  analysisResults  AnalysisResult[]
+
+  @@index([politicianId, madeAt])
+}
+
+model Bill {
+  id                       String                  @id @default(cuid())
+  externalId               String?                 @unique
+  billCode                 String                  @unique
+  title                    String
+  summary                  String
+  issueTags                String[]
+  jurisdictionLevel        JurisdictionLevel
+  jurisdictionCountry      String                  @default("US")
+  jurisdictionState        String?
+  chamber                  String?
+  introducedAt             DateTime?
+  latestActionAt           DateTime?
+  createdAt                DateTime                @default(now())
+  sourceRetrievedAt        DateTime?
+  parserVersion            String?
+  extractionConfidence     Float?
+  verificationState        VerificationState       @default(UNVERIFIED)
+  rawSourceSnapshot        Json?
+
+  votes                    Vote[]
+  statementLinks           StatementBillLink[]
+  analysisResults          AnalysisResult[]
+  constituentImpactResults ConstituentImpactResult[]
+}
+
+model Vote {
+  id                       String                  @id @default(cuid())
+  externalId               String?                 @unique
+  politicianId             String
+  billId                   String
+  votePosition             VotePosition
+  voteWeight               Float?                  @default(1)
+  rollCallReference        String?
+  votedAt                  DateTime
+  createdAt                DateTime                @default(now())
+  sourceRetrievedAt        DateTime?
+  parserVersion            String?
+  extractionConfidence     Float?
+  verificationState        VerificationState       @default(UNVERIFIED)
+  rawSourceSnapshot        Json?
+
+  politician               Politician              @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  bill                     Bill                    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  analysisResults          AnalysisResult[]
+  constituentImpactResults ConstituentImpactResult[]
+
+  @@unique([politicianId, billId, votedAt])
+  @@index([billId, votedAt])
+}
+
+model StatementBillLink {
+  id                 String    @id @default(cuid())
+  statementId        String
+  billId             String
+  relevanceScore     Float     @default(0.5)
+  relevanceRationale String?
+  createdAt          DateTime  @default(now())
+
+  statement          Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  bill               Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@unique([statementId, billId])
+}
+
+model Donor {
+  id               String              @id @default(cuid())
+  externalId       String?             @unique
+  name             String
+  donorType        DonorType
+  sector           String?
+  metadata         Json?
+  createdAt        DateTime            @default(now())
+
+  contributions    DonorContribution[]
+
+  @@index([sector])
+}
+
+model DonorContribution {
+  id               String      @id @default(cuid())
+  externalId       String?     @unique
+  donorId          String
+  politicianId     String
+  amountUsd        Decimal     @db.Decimal(14, 2)
+  contributionDate DateTime
+  electionCycle    String
+  sourceSystem     String
+  contributionType String?
+  createdAt        DateTime    @default(now())
+  sourceRetrievedAt DateTime?
+  parserVersion    String?
+  extractionConfidence Float?
+  verificationState VerificationState @default(UNVERIFIED)
+  rawSourceSnapshot Json?
+
+  donor            Donor       @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  politician       Politician  @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+
+  @@index([politicianId, electionCycle])
+}
+
+model FinancialDisclosure {
+  id                    String                     @id @default(cuid())
+  externalId            String?                    @unique
+  politicianId          String
+  filingYear            Int
+  reportType            String
+  sourceUrl             String?
+  rawPdfPath            String?
+  parsedData            Json?
+  extractionStatus      DisclosureExtractionStatus @default(PENDING)
+  extractionConfidence  Float?
+  parserVersion         String?
+  verificationState     VerificationState          @default(UNVERIFIED)
+  sourceRetrievedAt     DateTime?
+  rawTextSnapshot       String?
+  filedAt               DateTime?
+  createdAt             DateTime                   @default(now())
+
+  politician            Politician                 @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  assets                DisclosureAsset[]
+  liabilities           DisclosureLiability[]
+  incomeSources         DisclosureIncomeSource[]
+  transactions          DisclosureTransaction[]
+
+  @@index([politicianId, filingYear])
+}
+
+model DisclosureAsset {
+  id                   String               @id @default(cuid())
+  financialDisclosureId String
+  name                 String
+  category             String?
+  owner                String?
+  valueMinUsd          Int?
+  valueMaxUsd          Int?
+
+  financialDisclosure  FinancialDisclosure  @relation(fields: [financialDisclosureId], references: [id], onDelete: Cascade)
+}
+
+model DisclosureLiability {
+  id                   String               @id @default(cuid())
+  financialDisclosureId String
+  creditor             String
+  liabilityType        String?
+  amountMinUsd         Int?
+  amountMaxUsd         Int?
+
+  financialDisclosure  FinancialDisclosure  @relation(fields: [financialDisclosureId], references: [id], onDelete: Cascade)
+}
+
+model DisclosureIncomeSource {
+  id                   String               @id @default(cuid())
+  financialDisclosureId String
+  sourceName           String
+  incomeType           String?
+  incomeMinUsd         Int?
+  incomeMaxUsd         Int?
+
+  financialDisclosure  FinancialDisclosure  @relation(fields: [financialDisclosureId], references: [id], onDelete: Cascade)
+}
+
+model DisclosureTransaction {
+  id                   String               @id @default(cuid())
+  financialDisclosureId String
+  assetName            String
+  transactionType      String
+  transactionDate      DateTime?
+  amountMinUsd         Int?
+  amountMaxUsd         Int?
+
+  financialDisclosure  FinancialDisclosure  @relation(fields: [financialDisclosureId], references: [id], onDelete: Cascade)
+}
+
+model District {
+  id                       String                    @id @default(cuid())
+  code                     String                    @unique
+  name                     String
+  jurisdictionLevel        JurisdictionLevel
+  jurisdictionCountry      String                    @default("US")
+  jurisdictionState        String?
+  population               Int?
+  medianHouseholdIncomeUsd Int?
+  demographics             Json?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  politicians              Politician[]
+  issueIndicators          DistrictIssueIndicator[]
+  constituentImpactResults ConstituentImpactResult[]
+}
+
+model DistrictIssueIndicator {
+  id                 String    @id @default(cuid())
+  districtId         String
+  issueTag           String
+  indicatorName      String
+  indicatorValue     Float
+  indicatorUnit      String?
+  normalizedNeedScore Float
+  sourceLabel        String?
+  sourceYear         Int?
+  createdAt          DateTime  @default(now())
+
+  district           District  @relation(fields: [districtId], references: [id], onDelete: Cascade)
+
+  @@index([districtId, issueTag])
+}
+
+model AnalysisResult {
+  id                    String                @id @default(cuid())
+  externalId            String?               @unique
+  politicianId          String
+  statementId           String
+  billId                String?
+  voteId                String?
+  classification        AlignmentClassification
+  confidenceScore       Float
+  rationale             String
+  comparable            Boolean               @default(true)
+  methodVersion         String
+  metadata              Json?
+  verificationState     VerificationState      @default(UNVERIFIED)
+  rawEvidenceSnapshot   Json?
+  sourceRetrievedAt     DateTime?
+  createdAt             DateTime              @default(now())
+
+  politician            Politician            @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  statement             Statement             @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  bill                  Bill?                 @relation(fields: [billId], references: [id], onDelete: SetNull)
+  vote                  Vote?                 @relation(fields: [voteId], references: [id], onDelete: SetNull)
+
+  @@index([politicianId, createdAt])
+}
+
+model HonestyScoreSnapshot {
+  id                           String     @id @default(cuid())
+  politicianId                 String
+  periodLabel                  String
+  consistentActions            Int
+  totalComparableStatements    Int
+  honestyScore                 Float
+  methodologyVersion           String
+  createdAt                    DateTime   @default(now())
+
+  politician                   Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+
+  @@index([politicianId, createdAt])
+}
+
+model ConstituentImpactResult {
+  id                    String          @id @default(cuid())
+  externalId            String?         @unique
+  politicianId          String
+  districtId            String
+  billId                String
+  voteId                String?
+  issueTag              String
+  impactAlignment       ImpactAlignment
+  impactScore           Float
+  confidenceScore       Float
+  rationale             String
+  methodVersion         String
+  verificationState     VerificationState @default(UNVERIFIED)
+  createdAt             DateTime        @default(now())
+
+  politician            Politician      @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+  district              District        @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  bill                  Bill            @relation(fields: [billId], references: [id], onDelete: Cascade)
+  vote                  Vote?           @relation(fields: [voteId], references: [id], onDelete: SetNull)
+
+  @@index([politicianId, createdAt])
+}
+
+model PoliticianAlias {
+  id             String     @id @default(cuid())
+  politicianId   String
+  alias          String
+  normalizedAlias String
+  createdAt      DateTime   @default(now())
+
+  politician     Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+
+  @@index([normalizedAlias])
+  @@index([politicianId])
+}
+
+model OfficeHistory {
+  id                String     @id @default(cuid())
+  politicianId      String
+  officeTitle       String
+  chamber           String?
+  jurisdictionLevel JurisdictionLevel
+  jurisdictionState String?
+  city              String?
+  county            String?
+  districtLabel     String?
+  startDate         DateTime?
+  endDate           DateTime?
+  isCurrent         Boolean    @default(false)
+  electionYear      Int?
+  createdAt         DateTime   @default(now())
+
+  politician        Politician @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+
+  @@index([politicianId, isCurrent])
+  @@index([jurisdictionLevel, jurisdictionState, county, city])
+}
+
+model PublicFigureSearchDocument {
+  id                       String                   @id @default(cuid())
+  politicianId             String                   @unique
+  fullName                 String
+  normalizedFullName       String
+  aliases                  String[]
+  officeDisplay            String
+  officeHeld               String?
+  officeSought             String?
+  chamber                  String?
+  party                    String?
+  jurisdictionLevel        JurisdictionLevel
+  jurisdictionState        String?
+  city                     String?
+  county                   String?
+  districtLabel            String?
+  candidateStatus          PublicFigureStatus
+  incumbentChallengerStatus IncumbentChallengerStatus @default(UNKNOWN)
+  electionYear             Int?
+  issueTags                String[]                 @default([])
+  honestyScore             Float?
+  donorVolumeUsd           Float                    @default(0)
+  recentVotesCount         Int                      @default(0)
+  latestDisclosureYear     Int?
+  latestActivityAt         DateTime?
+  latestActivitySummary    String?
+  searchBlob               String
+  updatedAt                DateTime                 @updatedAt
+  createdAt                DateTime                 @default(now())
+
+  politician               Politician               @relation(fields: [politicianId], references: [id], onDelete: Cascade)
+
+  @@index([normalizedFullName])
+  @@index([candidateStatus, electionYear])
+  @@index([jurisdictionLevel, jurisdictionState, county, city])
+  @@index([party, chamber])
+}
+
+model DataLineage {
+  id                String            @id @default(cuid())
+  recordType        String
+  recordId          String
+  layer             DataLayer
+  sourceUrl         String?
+  sourceType        String?
+  retrievalDate     DateTime?
+  parserVersion     String?
+  extractionStatus  String?
+  confidenceScore   Float?
+  verificationState VerificationState @default(UNVERIFIED)
+  rawTextSnapshot   String?
+  rawJsonSnapshot   Json?
+  notes             String?
+  createdAt         DateTime          @default(now())
+
+  @@index([recordType, recordId])
+  @@index([layer, createdAt])
+}
+
+model ParserRunLog {
+  id                String           @id @default(cuid())
+  sourceType        String
+  sourceUrl         String?
+  parserVersion     String
+  status            ProcessingStatus
+  confidenceScore   Float?
+  recordType        String?
+  recordId          String?
+  message           String
+  rawInputSnapshot  Json?
+  rawOutputSnapshot Json?
+  createdAt         DateTime         @default(now())
+}
+
+model AnalysisRunLog {
+  id                     String           @id @default(cuid())
+  methodVersion          String
+  status                 ProcessingStatus
+  classification         AlignmentClassification?
+  confidenceScore        Float?
+  recordType             String?
+  recordId               String?
+  statementId            String?
+  billId                 String?
+  voteId                 String?
+  message                String
+  rawInputSnapshot       Json?
+  rawOutputSnapshot      Json?
+  verificationState      VerificationState @default(UNVERIFIED)
+  createdAt              DateTime         @default(now())
+}
